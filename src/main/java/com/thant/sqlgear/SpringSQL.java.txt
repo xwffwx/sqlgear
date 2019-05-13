@@ -1,0 +1,64 @@
+package com.thant.sqlgear;
+
+import javax.sql.DataSource;
+
+import org.springframework.jdbc.datasource.ConnectionHandle;
+import org.springframework.jdbc.datasource.ConnectionHolder;
+import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import com.thant.sqlgear.SQLRunner;
+
+class MyConnectionHolder extends ConnectionHolder {
+	public MyConnectionHolder(ConnectionHandle connectionHandle) {
+		super(connectionHandle);
+	}
+	
+	@Override
+	protected boolean hasConnection() {
+		return super.hasConnection();
+	}
+}
+
+public class SpringSQL extends SQLRunner {
+	private boolean needRelease = false;
+
+	public SpringSQL() {
+		super();
+	}
+	
+	public SpringSQL(DataSource ds) {
+		super(DataSourceUtils.getConnection(ds));
+
+       	needRelease = isNeedRelease(ds);
+       	if (needRelease) {
+        	System.out.println("当前执行环境无事务管理，将自动释放连接");
+       	}
+	}
+	
+	private boolean isNeedRelease(DataSource ds) {
+		ConnectionHolder conHolder = (ConnectionHolder)TransactionSynchronizationManager.getResource(ds);
+		if (null == conHolder) return true;
+		
+		ConnectionHandle conHandle = conHolder.getConnectionHandle();
+        if 	( (conHandle != null && new MyConnectionHolder(conHandle).hasConnection())
+       			|| conHolder.isSynchronizedWithTransaction() ) {
+        	return false;
+        } else {
+        	return true;
+        }
+	}
+	
+	@Override
+	public void close() {
+		if (needRelease) {
+			System.out.println("释放连接.");
+			super.close();
+		}
+	}
+	
+	@Override
+	protected void finalize() {
+		close();
+	}
+}
