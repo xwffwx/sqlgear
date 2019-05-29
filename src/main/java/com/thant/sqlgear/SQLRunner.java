@@ -60,9 +60,30 @@ public class SQLRunner {
 		}
 	}
 
+	@SuppressWarnings("unchecked")
 	public int update(Connection cnt, Map<String, Object> map) {
-		List<Map<String, Object>> lst = query(cnt, map);
-		if (lst != null && lst.size()>0) {
+		boolean isUpdate = false;
+		if (map.get(SQLMap.whereskey) != null
+			&& ((Map<String, Object>)map.get(SQLMap.whereskey)).size()>0) {
+			//查询条件不为空才做原记录查询，避免发生全表查询
+			Object[] bakA = {map.get(SQLMap.fieldskey), map.get(SQLMap.orderbykey)};
+			map.put(SQLMap.fieldskey, "COUNT(*)");
+			map.remove(SQLMap.orderbykey);
+			long num = 0;
+			try {
+				num = (long)CommonMap.getValue(query(null, map));
+			} catch (Exception e) {
+				throw new RuntimeException(e.toString());
+			} finally {
+				map.put(SQLMap.fieldskey, bakA[0]);
+				map.put(SQLMap.orderbykey, bakA[1]);
+			}
+			if (1 == num) {
+				//查到有原记录，可做更新
+				isUpdate = true;
+			}
+		}
+		if (isUpdate) {
 			return update(cnt, "UPDATE", map.get(SQLMap.objectskey)
 				,SQL.setWithMap(map)
 				,SQL.whereWithMap(map));
@@ -71,6 +92,22 @@ public class SQLRunner {
 				,SQL.fieldWithMap(map)
 				,SQL.valueWithMap(map));
 		}
+	}
+
+	@SuppressWarnings("unchecked")
+	public int delete(Connection cnt, Map<String, Object> map) {
+		if (map.get(SQLMap.whereskey) != null
+			&& ((Map<String, Object>)map.get(SQLMap.whereskey)).size()>0) {
+			//查询条件不为空才做原记录查询，避免发生全表删除
+			int rows = update(cnt, "DELETE FROM", map.get(SQLMap.objectskey)
+				,SQL.whereWithMap(map));
+			if (rows>1) {
+				throw new RuntimeException("不能删除多条记录");
+			} else if (1 == rows) {
+				return 1; 
+			}
+		}
+		return 0;
 	}
 
 	public int update(Connection cnt, Object... sqlA) {
@@ -82,10 +119,7 @@ public class SQLRunner {
 
 		int rows = 0;
 		try {
-			//long t = System.currentTimeMillis();
 			rows = runner.update(null==cnt ? connect.getConnection() : cnt, sql.getSql(), sql.getArgs());
-			//t = System.currentTimeMillis() - t;
-			//System.out.println(String.format("SQL:%s%ntime:%dms%neffectrows:%d", sql, t, rows));
 		} catch (SQLException e) {
 			throw new RuntimeException(e.getMessage());
 		}
@@ -96,8 +130,16 @@ public class SQLRunner {
 		String fields = (String)map.get(SQLMap.fieldskey);
 		if (isEmpty(fields)) fields = "*";
 		
-		return query(null==cnt ? connect : cnt,
-			"select", fields, "from", map.get(SQLMap.objectskey), SQL.whereWithMap(map));
+		if (map.containsKey(SQLMap.orderbykey)) {
+			return query(null==cnt ? connect : cnt,
+				"SELECT", fields, "FROM", map.get(SQLMap.objectskey),
+				SQL.whereWithMap(map),
+				"ORDER BY", map.get(SQLMap.orderbykey));
+		} else {
+			return query(null==cnt ? connect : cnt,
+				"SELECT", fields, "FROM", map.get(SQLMap.objectskey),
+				SQL.whereWithMap(map));
+		}
 	}
 
 	public List<Map<String, Object>> query(Connection cnt, Object... sqlA) {
@@ -109,10 +151,7 @@ public class SQLRunner {
 		
 		List<Map<String, Object>> ret = null;
 		try {
-			//long t = System.currentTimeMillis();
 			ret = runner.query(null==cnt ? connect.getConnection() : cnt, sql.getSql(), new MapListHandler(), sql.getArgs());
-			//t = System.currentTimeMillis() - t;
-			//System.out.println(String.format("SQL:%s%ntime:%dms%n", sql, t));
 		} catch (SQLException e) {
 			throw new RuntimeException(e.getMessage());
 		}
