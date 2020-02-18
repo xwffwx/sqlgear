@@ -13,24 +13,48 @@ import org.apache.commons.dbutils.handlers.MapListHandler;
 import com.thant.common.map.CommonMap;
 import com.thant.common.map.SQLMap;
 
+/**
+ * @ClassName: SQLRunner
+ * @Description: SQL语句执行工具
+ * @author: 肖文峰
+ * @date: 2019年5月30日 下午3:33:27
+ */
 public class SQLRunner {
+	private DataSource _ds = null;
 	private SilentConnection connect = null;
 	private QueryRunner runner = new QueryRunner();
 
 	public SQLRunner() {
 	}
 
+	/**
+	 * @Title 构造函数
+	 * @Description 根据连接对象创建
+	 * @param cnt 连接对象
+	 */
 	public SQLRunner(Connection cnt) {
 		if (cnt != null) {
 			connect = new SilentConnection(cnt);
-			connect.setAutoCommit(false);
+			//connect.setAutoCommit(false); 对外部给的连接，不应该有默认动作(不挖坑)，所以注释掉
 		}
 	}
 
+	/**
+	 * @Title isEmpty
+	 * @Description 
+	 * @param s
+	 * @return boolean
+	 * @throws
+	 */
 	private static boolean isEmpty(String s) {
 		return null==s || "".equals(s);
 	}
 	
+	/**
+	 * @Title 构造函数
+	 * @Description 根据数据源对象创建
+	 * @param ds 数据源对象
+	 */
 	public SQLRunner(DataSource ds) {
 		Connection cnt = null;
 		try {
@@ -42,6 +66,7 @@ public class SQLRunner {
 		if (cnt != null) {
 			connect = new SilentConnection(cnt);
 			connect.setAutoCommit(false);
+			_ds = ds; 
 		}
 	}
 	
@@ -49,17 +74,34 @@ public class SQLRunner {
 		close();
 	}
 	
+	/**
+	 * @Title 关闭连接
+	 * @Description 
+	 * @return void
+	 * @throws
+	 */
 	public void close() {
 		if (connect != null) {
 			try {
-				//connect.rollback();
-				connect.close();
+				if (_ds != null) {
+					connect.commit();//自己从数据源获取的连接，自己提交且释放;
+					connect.close(); //_ds==null时表示是外部给的连接，由外部释放
+				}
 			} catch (Exception e) {} finally {
 				connect = null;
+				_ds = null;
 			}
 		}
 	}
 
+	/**
+	 * @Title 插入/更新一条记录
+	 * @Description 如果在参数mao中提供了where条件且只匹配一条记录则做更新，否则做插入操作
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param map 提交的记录，类型 @see SQLMap
+	 * @return int 修改的记录条数
+	 * @throws
+	 */
 	@SuppressWarnings("unchecked")
 	public int update(Connection cnt, Map<String, Object> map) {
 		boolean isUpdate = false;
@@ -75,8 +117,8 @@ public class SQLRunner {
 			} catch (Exception e) {
 				throw new RuntimeException(e.toString());
 			} finally {
-				map.put(SQLMap.fieldskey, bakA[0]);
-				map.put(SQLMap.orderbykey, bakA[1]);
+				if (bakA[0] != null) map.put(SQLMap.fieldskey, bakA[0]);
+				if (bakA[1] != null) map.put(SQLMap.orderbykey, bakA[1]);
 			}
 			if (1 == num) {
 				//查到有原记录，可做更新
@@ -94,6 +136,14 @@ public class SQLRunner {
 		}
 	}
 
+	/**
+	 * @Title 删除一条记录
+	 * @Description 应用于表的CRUD，只能删除一条记录
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param map 定义删除对象的SQLmap
+	 * @return int 删除的记录数，=1表示成功，0未找到记录
+	 * @throws
+	 */
 	@SuppressWarnings("unchecked")
 	public int delete(Connection cnt, Map<String, Object> map) {
 		if (map.get(SQLMap.whereskey) != null
@@ -110,10 +160,26 @@ public class SQLRunner {
 		return 0;
 	}
 
+	/**
+	 * @Title 通用更新
+	 * @Description 支持UPDATE/INSERT/DELETE等改变数据的动作
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param sqlA 构成SQL语句的变长参数
+	 * @return int 影响的记录数
+	 * @throws
+	 */
 	public int update(Connection cnt, Object... sqlA) {
 		return update(cnt, new SQL(sqlA));
 	}
 	
+	/**
+	 * @Title 通用更新
+	 * @Description 支持UPDATE/INSERT/DELETE等改变数据的动作
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param sql 定义的SQL对象 @see SQL
+	 * @return int 影响的记录数
+	 * @throws
+	 */
 	public int update(Connection cnt, SQL sql) {
 		if (null == cnt && null == connect) return 0;
 
@@ -126,26 +192,47 @@ public class SQLRunner {
 		return rows;
 	}
 
+	/**
+	 * @Title Map条件查询
+	 * @Description 返回带分页和排序的单/多行数据 
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param map 查询+分页+排序条件，@see SQLMap
+	 * @return List<Map<String,Object>> 返回数据结果集
+	 * @throws
+	 */
 	public List<Map<String, Object>> query(Connection cnt, Map<String, Object> map) {
 		String fields = (String)map.get(SQLMap.fieldskey);
 		if (isEmpty(fields)) fields = "*";
 		
-		if (map.containsKey(SQLMap.orderbykey)) {
-			return query(null==cnt ? connect : cnt,
-				"SELECT", fields, "FROM", map.get(SQLMap.objectskey),
-				SQL.whereWithMap(map),
-				"ORDER BY", map.get(SQLMap.orderbykey));
-		} else {
-			return query(null==cnt ? connect : cnt,
-				"SELECT", fields, "FROM", map.get(SQLMap.objectskey),
-				SQL.whereWithMap(map));
-		}
+		return query(null==cnt ? connect : cnt,
+			"SELECT", fields, "FROM", map.get(SQLMap.objectskey),
+			SQL.whereWithMap(map),
+			SQL.IF(!isEmpty((String)map.get(SQLMap.orderbykey)), "ORDER BY", map.get(SQLMap.orderbykey)),
+			SQL.IF(map.get(SQLMap.pagebeginkey)!=null && map.get(SQLMap.pageendkey)!=null,
+				"LIMIT", SQL.V(map.get(SQLMap.pagebeginkey)) , ",", SQL.V(map.get(SQLMap.pageendkey)))
+		);
 	}
 
+	/**
+	 * @Title 通用查询
+	 * @Description   
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param sqlA 构成SQL语句的变长参数
+	 * @return List<Map<String,Object>> 返回数据结果集
+	 * @throws
+	 */
 	public List<Map<String, Object>> query(Connection cnt, Object... sqlA) {
 		return query(cnt, new SQL(sqlA));
 	}
 	
+	/**
+	 * @Title 通用查询
+	 * @Description 
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param sql 定义的SQL对象 @see SQL
+	 * @return List<Map<String,Object>> 返回数据结果集
+	 * @throws
+	 */
 	public List<Map<String, Object>> query(Connection cnt, SQL sql) {
 		if (null == cnt && null == connect || null == sql) return null;
 		
@@ -158,24 +245,59 @@ public class SQLRunner {
 		return ret;
 	}
 
+	/**
+	 * @Title 查询返回一个值
+	 * @Description 把结果中第一行的第一列数据返回，如果没有的话返回NULL
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param sqlA 构成SQL语句的变长参数
+	 * @return Object 查询到的值
+	 * @throws
+	 */
 	public Object queryValue(Connection cnt, Object... sqlA) {
 		return CommonMap.getValue(query(cnt, sqlA));
 	}
 
+	/**
+	 * @Title 查询返回一行数据
+	 * @Description 
+	 * @param cnt 连接对象，NULL表示使用构造函数关联的连接
+	 * @param sqlA 定义的SQL对象 @see SQL
+	 * @return Map<String,Object>
+	 * @throws
+	 */
 	public Map<String, Object> queryOne(Connection cnt, Object... sqlA) {
 		return CommonMap.getOne(query(cnt, sqlA));
 	}
 
+	/**
+	 * @Title 返回构造函数关联的连接
+	 * @Description 
+	 * @return SilentConnection 连接对象 @see SilentConnection
+	 * @throws
+	 */
 	public SilentConnection getConnect() {
 		return connect;
 	}
 	
+	/**
+	 * @Title 提交连接
+	 * @Description 
+	 * @return void
+	 * @throws
+	 */
 	public void commit() {
 		if (connect != null) {
 			connect.commit();
 		}
 	}
 	
+	/**
+	 * @Title 回滚连接
+	 * @Description 
+	 * @param sp 要回滚到的保存点，没有保存点可传NULL
+	 * @return void
+	 * @throws
+	 */
 	public void rollback(Savepoint sp) {
 		if (connect != null) {
 			if (null == sp) {
