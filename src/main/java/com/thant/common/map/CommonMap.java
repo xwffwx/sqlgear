@@ -1,7 +1,6 @@
 package com.thant.common.map;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -153,7 +152,7 @@ public class CommonMap implements Map<String, Object> {
 		for (int i=0; i<pathA.length-1; ++i) {
 			obj = m.get(pathA[i]);
 			if (null == obj) {
-				Map<String, Object> newmap = new HashMap<String, Object>();
+				Map<String, Object> newmap = new LinkedHashMap<String, Object>();
 				m.put(pathA[i], newmap);
 				m = newmap;
 				continue;

@@ -12,6 +12,7 @@ import org.apache.commons.dbutils.handlers.MapListHandler;
 
 import com.thant.common.map.CommonMap;
 import com.thant.common.map.SQLMap;
+import static com.thant.sqlgear.SQL.*;
 
 /**
  * @ClassName: SQLRunner
@@ -23,6 +24,9 @@ public class SQLRunner {
 	private DataSource _ds = null;
 	private SilentConnection connect = null;
 	private QueryRunner runner = new QueryRunner();
+	
+	private String lastSql = null;
+	private Object[] lastArgs = {}; 
 
 	public SQLRunner() {
 	}
@@ -70,6 +74,18 @@ public class SQLRunner {
 		}
 	}
 	
+	public String getLastSql() {
+		return lastSql;
+	}
+
+	public Object[] getLastArgs() {
+		return lastArgs;
+	}
+
+	public void setLastArgs(Object[] lastArgs) {
+		this.lastArgs = lastArgs;
+	}
+
 	protected void finalize() {
 		close();
 	}
@@ -105,15 +121,21 @@ public class SQLRunner {
 	@SuppressWarnings("unchecked")
 	public int update(Connection cnt, Map<String, Object> map) {
 		boolean isUpdate = false;
-		if (map.get(SQLMap.whereskey) != null
+		if ("REPLACE".equals(map.get(SQLMap.updatetypekey))
+			&& map.get(SQLMap.whereskey) != null
 			&& ((Map<String, Object>)map.get(SQLMap.whereskey)).size()>0) {
-			//查询条件不为空才做原记录查询，避免发生全表查询
+			//执行REPLACE，而且查询条件不为空才做原记录查询，避免发生全表查询
 			Object[] bakA = {map.get(SQLMap.fieldskey), map.get(SQLMap.orderbykey)};
 			map.put(SQLMap.fieldskey, "COUNT(*)");
 			map.remove(SQLMap.orderbykey);
 			long num = 0;
 			try {
-				num = (long)CommonMap.getValue(query(null, map));
+				Object countObj = CommonMap.getValue(query(cnt, map));
+				if (countObj instanceof Long) {
+					num = (long)countObj;
+				} else {
+					num = (int)countObj;
+				}
 			} catch (Exception e) {
 				throw new RuntimeException(e.toString());
 			} finally {
@@ -123,16 +145,18 @@ public class SQLRunner {
 			if (1 == num) {
 				//查到有原记录，可做更新
 				isUpdate = true;
+			} else if (num>1) {
+				throw new RuntimeException("不允许用REPLACE批量更新多条记录，请使用UPDATE");
 			}
 		}
 		if (isUpdate) {
 			return update(cnt, "UPDATE", map.get(SQLMap.objectskey)
-				,SQL.setWithMap(map)
-				,SQL.whereWithMap(map));
+				,setWithMap(map)
+				,whereWithMap(map));
 		} else {
 			return update(cnt, "INSERT INTO", map.get(SQLMap.objectskey)
-				,SQL.fieldWithMap(map)
-				,SQL.valueWithMap(map));
+				,IF(false == (Boolean)map.get(SQLMap.insertwithlistkey), fieldWithMap(map))
+				,valueWithMap(map));
 		}
 	}
 
@@ -150,7 +174,7 @@ public class SQLRunner {
 			&& ((Map<String, Object>)map.get(SQLMap.whereskey)).size()>0) {
 			//查询条件不为空才做原记录查询，避免发生全表删除
 			int rows = update(cnt, "DELETE FROM", map.get(SQLMap.objectskey)
-				,SQL.whereWithMap(map));
+				,whereWithMap(map));
 			if (rows>1) {
 				throw new RuntimeException("不能删除多条记录");
 			} else if (1 == rows) {
@@ -183,9 +207,12 @@ public class SQLRunner {
 	public int update(Connection cnt, SQL sql) {
 		if (null == cnt && null == connect) return 0;
 
+		lastSql  = sql.getSql();
+		lastArgs = sql.getArgs();
+
 		int rows = 0;
 		try {
-			rows = runner.update(null==cnt ? connect.getConnection() : cnt, sql.getSql(), sql.getArgs());
+			rows = runner.update(null==cnt ? connect.getConnection() : cnt, lastSql, lastArgs);
 		} catch (SQLException e) {
 			throw new RuntimeException(e.getMessage());
 		}
@@ -206,10 +233,10 @@ public class SQLRunner {
 		
 		return query(null==cnt ? connect : cnt,
 			"SELECT", fields, "FROM", map.get(SQLMap.objectskey),
-			SQL.whereWithMap(map),
-			SQL.IF(!isEmpty((String)map.get(SQLMap.orderbykey)), "ORDER BY", map.get(SQLMap.orderbykey)),
-			SQL.IF(map.get(SQLMap.pagebeginkey)!=null && map.get(SQLMap.pageendkey)!=null,
-				"LIMIT", SQL.V(map.get(SQLMap.pagebeginkey)) , ",", SQL.V(map.get(SQLMap.pageendkey)))
+			whereWithMap(map),
+			IF(!isEmpty((String)map.get(SQLMap.orderbykey)), "ORDER BY", map.get(SQLMap.orderbykey)),
+			IF(map.get(SQLMap.pagebeginkey)!=null && map.get(SQLMap.pageendkey)!=null,
+				"LIMIT", V(map.get(SQLMap.pagebeginkey)) , ",", V(map.get(SQLMap.pageendkey)))
 		);
 	}
 
@@ -236,9 +263,12 @@ public class SQLRunner {
 	public List<Map<String, Object>> query(Connection cnt, SQL sql) {
 		if (null == cnt && null == connect || null == sql) return null;
 		
+		lastSql  = sql.getSql();
+		lastArgs = sql.getArgs();
+		
 		List<Map<String, Object>> ret = null;
 		try {
-			ret = runner.query(null==cnt ? connect.getConnection() : cnt, sql.getSql(), new MapListHandler(), sql.getArgs());
+			ret = runner.query(null==cnt ? connect.getConnection() : cnt, lastSql, new MapListHandler(), lastArgs);
 		} catch (SQLException e) {
 			throw new RuntimeException(e.getMessage());
 		}

@@ -307,7 +307,24 @@ public class SQL {
 	 * @throws
 	 */
 	public static List<Object> VALUES(Object... args) {
-		return segs("VALUES (", ",", ")", args);
+		if (args.length<=0) {
+			return null;
+		}
+		if (args[0] instanceof String) {
+			int len = args.length/2;
+			Object[] fields = new Object[len];
+			Object[] values = new Object[len];
+			for (int i = 0,j = 0; i<len; ++i, j+=2) {
+				fields[i] = args[j];
+				values[i] = V(args[j+1]);
+			}
+			return L(
+				segs("(", ",", ")", fields),
+				segs("VALUES (", ",", ")", values)
+			);
+		} else {
+			return segs("VALUES (", ",", ")", args);
+		}
 	}
 	
 	/**
@@ -333,7 +350,7 @@ public class SQL {
 	}
 	
 	/**
-	 * @Title 构造SELECT语句的选择列
+	 * @Title 构造UPDATE语句的更新列
 	 * @Description 
 	 * @param map 用SQLMap定义的选择列内容，@see SQLMap
 	 * @return List<Object> 一个SQL片段
@@ -352,6 +369,17 @@ public class SQL {
 		}
 		return segs("(", ",", ")", conditions.toArray());
 	}
+
+	/**
+	 * @Title 构造UPDATE语句的更新列
+	 * @Description 
+	 * @param args 要更新的列数组
+	 * @return List<Object> 一个SQL片段
+	 * @throws
+	 */
+	/*public static List<Object> FIELDS(Object... args) {
+		return segs("(", ",", ")", args);
+	}*/
 	
 	/**
 	 * @Title 构造UPDATE语句的SET片段
@@ -361,9 +389,20 @@ public class SQL {
 	 * @throws
 	 */
 	public static List<Object> SET(Object... args) {
-		return segs("SET", ",", null, args);
+		if (args.length<=0) {
+			return null;
+		}
+		if (args[0] instanceof String) {
+			Object[] newargs = new Object[args.length/2];
+			for (int i = 0,j = 0; i<newargs.length; ++i, j+=2) {
+				newargs[i] = L(args[j], "=", V(args[j+1]));
+			}
+			return segs("SET", ",", null, newargs);
+		} else {
+			return segs("SET", ",", null, args);
+		}
 	}
-	
+
 	/**
 	 * @Title 构造UPDATE语句的SET片段
 	 * @Description 
@@ -415,31 +454,45 @@ public class SQL {
 	/**
 	 * @Title 构造SELECT/UPDATE语句的WHERE片段
 	 * @Description 
-	 * @param args WHERE条件，变长数组
+	 * @param args WHERE条件，变长数组，用AND连接条件
 	 * @return List<Object> 一个SQL片段
 	 * @throws
 	 */
 	public static List<Object> WHERE(Object... args) {
-		String joiner = "AND";
-		if (args[0] instanceof String) {
-			boolean cuthead = false;
-			String s = ((String)args[0]).trim().toUpperCase();
-			if ("AND".equals(s)) {
-				cuthead = true;
-			} else if ("OR".equals(s)) {
-				cuthead = true;
-				joiner = "OR";
-			}
-			if (cuthead) {
-				//把头部的AND|OR标识去掉
-				//为避免创建新数组，没有使用System.arraycopy
-				for (int i=1; i<args.length; ++i) {
-					args[i-1] = args[i];
-				}
-				args[args.length-1] = null;
-			}
+		if (args.length<=0) {
+			return null;
 		}
-		return segs("WHERE", joiner, null, args);
+		if (args[0] instanceof String) {
+			Object[] newargs = new Object[args.length/3];
+			for (int i = 0,j = 0; i<newargs.length; ++i, j+=3) {
+				newargs[i] = L(args[j], args[j+1], V(args[j+2]));
+			}
+			return segs("WHERE", "AND", null, newargs);
+		} else {
+			return segs("WHERE", "AND", null, args);
+		}
+	}
+
+	/**
+	 * @Title 构造SELECT/UPDATE语句的WHERE片段
+	 * @Description 
+	 * @param args WHERE条件，变长数组，用OR连接条件
+	 * @return List<Object> 一个SQL片段
+	 * @throws
+	 */
+	public static List<Object> WHERE_OR(Object... args) {
+		if (args.length<=0) {
+			return null;
+		}
+		if (args[0] instanceof String) {
+			Object[] newargs = new Object[args.length/3];
+			for (int i = 0,j = 0; i<newargs.length; ++i, j+=3) {
+				newargs[i] = L(args[j], args[j+1], V(args[j+2]));
+			}
+			return segs("WHERE", "OR", null, newargs);
+		} else {
+			return segs("WHERE", "OR", null, args);
+		}
 	}
 
 	/**
